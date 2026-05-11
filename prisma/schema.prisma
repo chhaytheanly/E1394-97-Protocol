@@ -1,281 +1,349 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
-// Main report containing all test results from a single analyzer run
+datasource db {
+  provider = "postgresql"
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ParseStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum FlagType {
+  WARNING
+  ERROR
+  INFO
+}
+
+enum StorageProvider {
+  LOCAL
+  S3
+  GCS
+  AZURE
+}
+
+enum UserRole {
+  ADMIN
+  TECHNICIAN
+  CLINICIAN
+  VIEWER
+}
+
+enum AuditAction {
+  CREATED
+  MODIFIED
+  VALIDATED
+  ACCESSED
+  DELETED
+}
+
+enum AuditStatus {
+  SUCCESS
+  FAILED
+}
+
 model LabReport {
   id                String            @id @default(cuid())
-  analyzerId        String            // "XN-330", "CB-3000", etc.
-  analyzerModel     String            // Full model name
+
+  analyzerId        String
+  analyzer          Analyzer          @relation(fields: [analyzerId], references: [id])
+
+  sampleId          String            @unique
+
+  patientGender     Gender?
+
+  analyzerModel     String
   softwareVersion   String?
   serialNumber      String?
-  sampleId          String            @unique
-  patientGender     String?           // "Male" | "Female" | "Other"
+
   testTimestamp     DateTime
-  
-  // Relationships
+
+  sourceFormat      String
+  parserVersion     String
+  parseStatus       ParseStatus
+  parseErrors       Json?
+
   results           TestResult[]
   imageArtifacts    ImageArtifact[]
   qualityFlags      QualityFlag[]
   auditLogs         AuditLog[]
-  
-  // Metadata
-  sourceFormat      String            // "HL7_V2", "HL7_V3", "XML", etc.
-  parserVersion     String            // Version of parser used
-  parseStatus       String            // "SUCCESS", "PARTIAL", "FAILED"
-  parseErrors       String?           // JSON array of errors if any
-  
-  // Security & Compliance
+
   isEncrypted       Boolean           @default(true)
-  encryptionKey     String?           // Reference to encryption key version
+  encryptionKeyId   String?
+  encryptionKey     EncryptionKey?    @relation(fields: [encryptionKeyId], references: [id])
+
   hipaaCompliant    Boolean           @default(true)
-  dataRetentionDays Int               @default(2555) // 7 years default
-  
+  dataRetentionDays Int               @default(2555)
+
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  deletedAt         DateTime?         // Soft delete for compliance
-  
-  @@index([analyzerId])
+  deletedAt         DateTime?
+
   @@index([sampleId])
   @@index([testTimestamp])
   @@index([deletedAt])
+  @@index([analyzerId])
 }
 
-// Individual test result
 model TestResult {
   id                String            @id @default(cuid())
+
   reportId          String
   report            LabReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  
-  testCode          String            // "WBC", "RBC", "HGB", etc.
-  value             Float?            // Numeric value if applicable
-  stringValue       String?           // String value if applicable
-  unit              String?           // "10*3/uL", "g/dL", "%", etc.
-  abnormalFlag      String?           // "N" | "H" | "L" | "NF" | "HF" | "LF" | "F"
-  
-  // Reference ranges
-  referenceMin      Float?
-  referenceMax      Float?
-  criticalMin       Float?
-  criticalMax       Float?
-  
-  // Quality indicators
+
+  testCode          String
+
+  value             Decimal?          @db.Decimal(10, 3)
+  stringValue       String?
+
+  unit              String?
+
+  abnormalFlag      String?
+
+  referenceMin      Decimal?          @db.Decimal(10, 3)
+  referenceMax      Decimal?          @db.Decimal(10, 3)
+
+  criticalMin       Decimal?          @db.Decimal(10, 3)
+  criticalMax       Decimal?          @db.Decimal(10, 3)
+
   isAbnormal        Boolean           @default(false)
   isCritical        Boolean           @default(false)
-  qualityScore      Float?            // 0-100 score
+
+  qualityScore      Float?
   comments          String?
-  
-  // Validation
+
   isValidated       Boolean           @default(false)
-  validatedBy       String?           // User ID who validated
+  validatedBy       String?
   validationNotes   String?
-  
+
   timestamp         DateTime
+
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  
+
   @@unique([reportId, testCode])
-  @@index([reportId])
   @@index([testCode])
   @@index([isAbnormal])
   @@index([isCritical])
 }
 
-// Image artifacts (scattergrams, histograms, etc.)
 model ImageArtifact {
   id                String            @id @default(cuid())
+
   reportId          String
   report            LabReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  
-  testCode          String            // "SCAT_WDF", "DIST_RBC", etc.
-  fileType          String            // "PNG", "JPEG", "TIFF", etc.
-  fileName          String            // Original filename
-  filePath          String            // S3/storage path or local path
-  fileSize          Int?              // Size in bytes
-  fileHash          String?           // SHA256 hash for integrity checking
-  
-  // Metadata
+
+  testCode          String
+
+  fileType          String
+  fileName          String
+  filePath          String
+
+  fileSize          Int?
+  fileHash          String?
+
   width             Int?
   height            Int?
-  quality           String?           // "HIGH", "MEDIUM", "LOW"
-  
-  // Storage
-  storageProvider   String            // "LOCAL", "S3", "GCS", "AZURE"
+
+  quality           String?
+
+  storageProvider   StorageProvider
+
   isProcessed       Boolean           @default(false)
-  processingErrors  String?           // JSON array of processing errors
-  
+
+  processingErrors  Json?
+
   timestamp         DateTime
+
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  
+
   @@index([reportId])
   @@index([testCode])
-  @@index([storageProvider])
 }
 
-// Quality flags and warnings
 model QualityFlag {
   id                String            @id @default(cuid())
+
   reportId          String
   report            LabReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  
-  flagType          String            // "WARNING", "ERROR", "INFO"
-  code              String            // Machine-readable code
-  message           String            // Human-readable message
-  severity          Int               // 1-5, higher = more severe
-  
-  // Context
-  testCode          String?           // Related test if applicable
-  metadata          String?           // JSON object with additional info
-  
+
+  flagType          FlagType
+
+  code              String
+  message           String
+
+  severity          Int
+
+  testCode          String?
+
+  metadata          Json?
+
   isResolved        Boolean           @default(false)
+
   resolvedAt        DateTime?
-  resolvedBy        String?           // User ID who resolved
+  resolvedBy        String?
   resolutionNote    String?
-  
+
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  
-  @@index([reportId])
+
   @@index([flagType])
   @@index([isResolved])
 }
 
-// Audit logging for compliance
 model AuditLog {
   id                String            @id @default(cuid())
+
   reportId          String
   report            LabReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  
-  action            String            // "CREATED", "MODIFIED", "VALIDATED", "ACCESSED", etc.
-  userId            String?           // User who performed action
-  ipAddress         String?           // IP address of requester
-  userAgent         String?           // Browser/client info
-  
-  // What changed
-  changedFields     String?           // JSON array of field names changed
-  oldValues         String?           // JSON of old values (encrypted)
-  newValues         String?           // JSON of new values (encrypted)
-  
-  // Metadata
-  reason            String?           // Why the action was performed
-  status            String            // "SUCCESS", "FAILED"
+
+  action            AuditAction
+
+  userId            String?
+  user              User?             @relation(fields: [userId], references: [id])
+
+  ipAddress         String?
+  userAgent         String?
+
+  changedFields     Json?
+  oldValues         Json?
+  newValues         Json?
+
+  reason            String?
+
+  status            AuditStatus
+
   errorMessage      String?
-  
+
   createdAt         DateTime          @default(now())
-  
-  @@index([reportId])
-  @@index([userId])
+
   @@index([action])
   @@index([createdAt])
 }
 
-// Reference ranges database
 model ReferenceRange {
   id                String            @id @default(cuid())
-  testCode          String            // "WBC", "RBC", "HGB", etc.
-  analyzerModel     String            // Specific to analyzer model
-  
-  ageMin            Int?              // Age range in years
+
+  analyzerId        String
+  analyzer          Analyzer          @relation(fields: [analyzerId], references: [id], onDelete: Cascade)
+
+  testCode          String
+
+  ageMin            Int?
   ageMax            Int?
-  gender            String?           // "M", "F", "B" (both)
-  
-  referenceMin      Float?
-  referenceMax      Float?
-  criticalMin       Float?
-  criticalMax       Float?
-  
-  unit              String            // "10*3/uL", "g/dL", "%", etc.
-  
-  // Metadata
-  source            String            // "MANUFACTURER", "LOCAL_LAB", "CLINICAL_GUIDELINE"
+
+  gender            Gender?
+
+  referenceMin      Decimal?          @db.Decimal(10, 3)
+  referenceMax      Decimal?          @db.Decimal(10, 3)
+
+  criticalMin       Decimal?          @db.Decimal(10, 3)
+  criticalMax       Decimal?          @db.Decimal(10, 3)
+
+  unit              String
+
+  source            String
+
   lastUpdated       DateTime
+
   notes             String?
-  
+
   isActive          Boolean           @default(true)
+
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  
-  @@unique([testCode, analyzerModel, ageMin, ageMax, gender])
+
   @@index([testCode])
-  @@index([analyzerModel])
   @@index([isActive])
 }
 
-// Analyzer metadata
 model Analyzer {
   id                String            @id @default(cuid())
-  model             String            @unique // "XN-330", "CB-3000", etc.
-  manufacturer      String            // "Sysmex", "Beckman Coulter", etc.
-  softwareVersions  String            // JSON array of supported versions
-  
-  // Parsing configuration
-  format            String            // "HL7_V2", "HL7_V3", "XML", "CSV"
+
+  model             String            @unique
+
+  manufacturer      String
+
+  softwareVersions  Json
+
+  format            String
+
   delimiter         String            @default("|")
   fieldDelimiter    String            @default("^")
-  
-  // Test codes and defaults
-  supportedTests    String            // JSON array of test codes
-  defaultUnit       String?           // For standardization
-  
-  // Reference ranges
+
+  supportedTests    Json
+
+  defaultUnit       String?
+
   referenceRanges   ReferenceRange[]
-  
+
+  reports           LabReport[]
+
   isActive          Boolean           @default(true)
+
   notes             String?
-  
+
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  
+
   @@index([manufacturer])
-  @@index([isActive])
 }
 
-// Users for HIPAA compliance
 model User {
   id                String            @id @default(cuid())
+
   email             String            @unique
   name              String
-  role              String            // "ADMIN", "TECHNICIAN", "CLINICIAN", "VIEWER"
-  
-  // Access control
-  permissions       String            // JSON array of permissions
-  allowedAnalyzers  String?           // JSON array of analyzer IDs they can access
-  
-  // Security
+
+  role              UserRole
+
+  permissions       Json
+
+  allowedAnalyzers  Json?
+
   passwordHash      String
+
   mfaEnabled        Boolean           @default(false)
-  mfaSecret         String?           // Encrypted
-  
+  mfaSecret         String?
+
   lastLogin         DateTime?
+
   isActive          Boolean           @default(true)
-  
+
+  auditLogs         AuditLog[]
+
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  deletedAt         DateTime?         // Soft delete
-  
-  @@index([email])
+  deletedAt         DateTime?
+
   @@index([role])
   @@index([isActive])
 }
 
-// Encryption keys for data protection
 model EncryptionKey {
   id                String            @id @default(cuid())
-  version           Int               // Incrementing version
-  algorithm         String            // "AES-256-GCM", etc.
-  publicKey         String            // Base64 encoded
-  
+
+  version           Int               @unique
+
+  algorithm         String
+
+  publicKey         String
+
   isActive          Boolean           @default(true)
+
   rotatedAt         DateTime?
-  
+
+  reports           LabReport[]
+
   createdAt         DateTime          @default(now())
-  
-  @@unique([version])
-  @@index([isActive])
 }

@@ -15,7 +15,6 @@ export class EncryptionService {
 
       const authTag = cipher.getAuthTag();
 
-      // Combine IV + AuthTag + Encrypted data
       const result = iv.toString(this.encoding) + ':' + authTag.toString(this.encoding) + ':' + encrypted;
 
       logger.debug('Data encrypted successfully');

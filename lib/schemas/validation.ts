@@ -138,7 +138,7 @@ export const UserCreateSchema = UserSchema.extend({
 export const AuditLogSchema = z.object({
   action: AuditActionSchema,
   userId: z.string().cuid().optional(),
-  ipAddress: z.string().ip().optional(),
+  ipAddress: z.string().ipv4().optional(),
   userAgent: z.string().optional(),
   changedFields: z.array(z.string()).optional(),
   reason: z.string().optional(),

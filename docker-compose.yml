@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: calmis_pg
+    restart: always
+
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: hospital_lab_db
+
+    ports:
+      - "5555:5432"
+
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
+volumes:
+  postgres:
