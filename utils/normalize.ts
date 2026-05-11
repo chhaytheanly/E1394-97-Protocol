@@ -1,3 +1,5 @@
+import type { Gender } from "@prisma/client";
+
 export class Normalizer {
 
   static splitUnitAndFlag(raw: string): { unit: string | null; flag: string | null } {
@@ -29,10 +31,13 @@ export class Normalizer {
     return isNaN(num) ? null : num;
   }
 
-  static mapGender(code: string | undefined): 'Male' | 'Female' | 'Other' | null {
-    const map: Record<string, 'Male' | 'Female' | 'Other'> = {
-      M: 'Male', F: 'Female', O: 'Other'
+  static mapGender(code: string | undefined): Gender | null {
+    const map: Record<string, Gender> = {
+      M: 'MALE',
+      F: 'FEMALE',
+      O: 'OTHER',
     };
-    return code ? map[code] || 'Other' : null;
+
+    return code ? map[code] ?? null : null;
   }
 }

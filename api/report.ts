@@ -4,6 +4,7 @@ import { HIPAACompliance, DataIntegrityService } from '../lib/security/auth';
 import { db } from '../services/queryService';
 import { logger } from '../lib/logger/logger';
 import { LabReportDatabaseSchema } from '../lib/schemas/validation';
+import { referenceValidator } from '../lib/validators/references';
 
 export class LabReportAPI {
   private app: Express;
@@ -14,12 +15,16 @@ export class LabReportAPI {
     this.parser = new LabonakService();
     this.setupMiddleware();
     this.setupRoutes();
-  }
+  };
 
   private setupMiddleware(): void {
     // Parse JSON
     this.app.use(express.json({ limit: '100mb' }));
     this.app.use(express.urlencoded({ limit: '100mb', extended: true }));
+    this.app.use(express.text({ type: ['text/plain',
+    'application/octet-stream',
+    'application/hl7-v2',
+    '*/*',], limit: '100mb' }));
 
     // Request logging
     this.app.use((req: Request, res: Response, next: NextFunction) => {
@@ -60,16 +65,28 @@ export class LabReportAPI {
     // Parse and store lab report
     api.post('/reports/parse', async (req: Request, res: Response) => {
       try {
-        const { rawData, analyzerId } = req.body;
+        let rawData: string | undefined;
+        let analyzerId: string | undefined;
 
-        if (!rawData) {
-          return res.status(400).json({ error: 'rawData is required' });
+        if (typeof req.body === 'string') {
+          rawData = req.body;
+          analyzerId = req.headers['x-analyzer-id'] as string;
         }
 
-        // Parse
+        else if (req.body && typeof req.body === 'object') {
+          rawData = req.body.rawData;
+          analyzerId = req.body.analyzerId;
+        }
+
+        if (!rawData) {
+          return res.status(400).json({
+            error: 'rawData is required',
+            receivedType: typeof req.body,
+          });
+        }
         const parseResult = this.parser.parse(rawData);
 
-        if (!parseResult.success) {
+        if (!parseResult.success || !parseResult.data) {
           return res.status(400).json({
             error: 'Parsing failed',
             errors: parseResult.errors,
@@ -77,52 +94,78 @@ export class LabReportAPI {
           });
         }
 
-        // Validate reference ranges
-        const validatedResults = referenceValidator.validateResults(parseResult.data.results);
-        const abnormalResults = referenceValidator.getAbnormalResults(validatedResults);
+        const validatedResults =
+          referenceValidator.validateResults(
+            parseResult.data.results
+          );
 
-        // Build database record
+        const abnormalResults =
+          referenceValidator.getAbnormalResults(
+            validatedResults
+          );
+
         const report = {
-          analyzerId: analyzerId || parseResult.data.header.analyzer,
-          analyzerModel: parseResult.data.header.analyzer || 'Unknown',
-          softwareVersion: parseResult.data.header.softwareVersion,
-          serialNumber: parseResult.data.header.serialNumber,
-          sampleId: parseResult.data.patient.sampleId,
-          patientGender: parseResult.data.patient.gender,
-          testTimestamp: parseResult.data.results[0]?.timestamp || new Date().toISOString(),
-          sourceFormat: 'HL7_V2' as any,
+          analyzerId:
+            analyzerId ||
+            parseResult.data.header.analyzer,
+
+          analyzerModel:
+            parseResult.data.header.analyzer ||
+            'Unknown',
+
+          softwareVersion:
+            parseResult.data.header.softwareVersion,
+
+          serialNumber:
+            parseResult.data.header.serialNumber,
+
+          sampleId:
+            parseResult.data.patient.sampleId,
+
+          patientGender:
+            parseResult.data.patient.gender,
+
+          testTimestamp:
+            parseResult.data.results[0]?.timestamp ||
+            new Date().toISOString(),
+
+          sourceFormat: 'HL7_V2',
           parserVersion: '2.0.0',
-          parseStatus: 'SUCCESS' as any,
-          results: parseResult.data.results,
+          parseStatus: 'SUCCESS',
+
+          results: validatedResults,
           imageArtifacts: parseResult.data.images,
+
           qualityFlags: abnormalResults.map((r: any) => ({
-            flagType: r.status.includes('CRITICAL') ? 'ERROR' : 'WARNING',
+            flagType:
+              r.status.includes('CRITICAL')
+                ? 'ERROR'
+                : 'WARNING',
+
             code: r.status,
             message: `${r.testCode}: ${r.status}`,
-            severity: r.status.includes('CRITICAL') ? 5 : 3,
+            severity:
+              r.status.includes('CRITICAL') ? 5 : 3,
             testCode: r.testCode,
           })),
         };
 
-        // Validate schema
-        const validationResult = LabReportDatabaseSchema.safeParse(report);
-        if (!validationResult.success) {
-          logger.warn('Schema validation failed', { errors: validationResult.error });
-        }
-
-        // Save to database
         const reportId = await db.saveLabReport(report as any);
 
-        res.status(201).json({
+        return res.status(201).json({
           success: true,
           reportId,
           parseTime: parseResult.duration,
           resultsCount: parseResult.data.results.length,
           abnormalCount: abnormalResults.length,
         });
+
       } catch (err) {
         logger.error('Failed to process report', err as Error);
-        res.status(500).json({ error: (err as Error).message });
+
+        return res.status(500).json({
+          error: (err as Error).message,
+        });
       }
     });
 
@@ -186,6 +229,21 @@ export class LabReportAPI {
         });
       } catch (err) {
         logger.error('Failed to get results', err as Error);
+        res.status(500).json({ error: (err as Error).message });
+      }
+    });
+
+    // Get all reports
+    api.get('/reports', async (req: Request, res: Response) => {
+      try {
+        const reports = await db.getAllReports();
+
+        res.json({
+          count: reports.length,
+          reports,
+        });
+      } catch (err) {
+        logger.error('Failed to get reports', err as Error);
         res.status(500).json({ error: (err as Error).message });
       }
     });

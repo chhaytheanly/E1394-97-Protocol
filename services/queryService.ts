@@ -73,9 +73,31 @@ export class DatabaseService {
     const startTime = Date.now();
 
     try {
+      const analyzerModel =
+        report.analyzerModel ||
+        report.analyzerId;
+
+      const analyzer =
+        await this.prisma.analyzer.upsert({
+          where: {
+            model: analyzerModel,
+          },
+          update: {},
+          create: {
+            model: analyzerModel,
+            manufacturer: "Unknown",
+            softwareVersions:
+              report.softwareVersion
+                ? [report.softwareVersion]
+                : [],
+            format: report.sourceFormat,
+            supportedTests: [],
+          },
+        });
+
       const created = await this.prisma.labReport.create({
         data: {
-          analyzerId: report.analyzerId,
+          analyzerId: analyzer.id,
 
           analyzerModel: report.analyzerModel,
 
@@ -201,7 +223,8 @@ export class DatabaseService {
                   img.quality ?? undefined,
 
                 storageProvider:
-                  img.storageProvider,
+                  img.storageProvider ??
+                  "LOCAL",
 
                 processingErrors:
                   img.processingErrors ??
@@ -291,6 +314,33 @@ export class DatabaseService {
       throw err;
     }
   }
+
+  async getAllReports() {
+    try {
+      return await this.prisma.labReport.findMany({
+        where: {
+          deletedAt: null,
+        },
+
+        include: {
+          results: true,
+          imageArtifacts: true,
+          qualityFlags: true,
+        },
+        
+        orderBy: {
+          testTimestamp: "desc",
+        }, 
+      });
+    } catch (error) {
+      logger.error(
+        "Failed to retrieve lab reports",
+        error as Error
+      );
+
+      throw error; 
+    }
+  };
 
   async getLabReport(reportId: string) {
     try {
