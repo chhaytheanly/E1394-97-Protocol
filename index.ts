@@ -4,7 +4,6 @@ import { readFile } from 'fs/promises';
 const read = async (filePath: string) => {
     try {
         const data = await readFile(filePath, 'utf-8');
-        console.log('File read successfully');
         return data;
     } catch (error) {
         console.error('Error reading file:', error);

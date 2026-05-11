@@ -10,6 +10,19 @@
   "peerDependencies": {
     "typescript": "^5"
   },
+  "scripts": {
+    "start:dev": "bun run ./api/report.ts",
+    "db:studio": "prisma studio",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:reset": "prisma migrate reset",
+    "db:seed": "prisma db seed",
+    "db:push": "prisma db push",
+    "db:pull": "prisma db pull",
+    "db:format": "prisma format",
+    "db:validate": "prisma validate",
+    "db:lint": "prisma lint"
+  },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
