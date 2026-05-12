@@ -4,6 +4,7 @@ import { HIPAACompliance, DataIntegrityService } from '../lib/security/auth';
 import { db } from '../services/queryService';
 import { logger } from '../lib/logger/logger';
 import { LabReportDatabaseSchema } from '../lib/schemas/validation';
+import kleur, { green, red , yellow} from 'kleur';
 import { referenceValidator } from '../lib/validators/references';
 
 export class LabReportAPI {
@@ -15,6 +16,7 @@ export class LabReportAPI {
     this.parser = new LabonakService();
     this.setupMiddleware();
     this.setupRoutes();
+    this.printRoutes();
   };
 
   private setupMiddleware(): void {
@@ -339,12 +341,52 @@ export class LabReportAPI {
 
   public start(port: number = 3000): void {
     this.app.listen(port, () => {
-      logger.info(`Lab Report API started on port ${port}`);
+      logger.info(kleur.cyan(`Lab Report API started on port ${port}`));
     });
   }
 
   public getApp(): Express {
     return this.app;
+  }
+
+  private printRoutes(): void {
+    const routes: string[] = [];
+
+    const print = (stack: any[], prefix = '') => {
+      stack.forEach((layer) => {
+
+        if (layer.route) {
+          const path = prefix + layer.route.path;
+
+          const methods = Object.keys(layer.route.methods)
+            .map((m) => m.toUpperCase())
+            .join(', ');
+
+          routes.push(`${methods.padEnd(10)} ${path}`);
+        }
+
+        else if (layer.name === 'router' && layer.handle?.stack) {
+          print(layer.handle.stack, prefix);
+        }
+      });
+    };
+
+    const router = (this.app as any).router;
+
+    if (!router) {
+      console.log('No router found');
+      return;
+    }
+
+    print(router.stack);
+
+    console.log(kleur.yellow('\n ::: Routes ::: '));
+
+    routes.forEach((route) => {
+      console.log(" ", kleur.green(route));
+    });
+
+    console.log(kleur.yellow(' ::: End ::: \n'));
   }
 }
 
