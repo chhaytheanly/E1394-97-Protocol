@@ -12,6 +12,7 @@
   },
   "scripts": {
     "start:dev": "bun run ./api/report.ts",
+    "dev": "bun run ./index.ts",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
